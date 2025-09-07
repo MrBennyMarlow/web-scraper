@@ -10,77 +10,71 @@ function getDomainFromEmail(email) {
 function fetchWebsite(url, callback, redirectCount = 0) {
 	if (redirectCount > 5) return callback(new Error("Too many redirects"), null);
 
-  	const client = url.startsWith("https") ? https : http;
-  	console.log(`Fetching: ${url}`);
+    	const client = url.startsWith("https") ? https : http;
+    	console.log(`Fetching: ${url}`);
 
-  	const req = client.get(url, (res) => {
-    		let data = "";
+    	const options = {
+        	headers: {
+            		"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/139.0.0.0 Safari/537.36",
+            		"Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            		"Accept-Language": "en-US,en;q=0.9"
+        	}
+    	};
 
-    		// Page Redirect
-    		if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-      			const newUrl = res.headers.location.startsWith("http")
-			? res.headers.location
-        		: new URL(res.headers.location, url).href;
+	const req = client.get(url, options, (res) => {
+        	let data = "";
 
-      			console.log(`Redirected to: ${newUrl}`);
-      			req.destroy(); 
-      			return fetchWebsite(newUrl, callback, redirectCount + 1);
-    		}
+        	// redirects
+        	if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+        	    const newUrl = res.headers.location.startsWith("http") 
+			? res.headers.location :
+			new URL(res.headers.location, url).href;
+		
+        	    console.log(`Redirected to: ${newUrl}`);
+        	    req.destroy();
+        	    return fetchWebsite(newUrl, callback, redirectCount + 1);
+        	}
+	
+	        // success
+	        if (res.statusCode >= 200 && res.statusCode < 300) {
+			res.on("data", (chunk) => (data += chunk));
+            		res.on("end", () => callback(null, data));
+       		} else {
+            		callback(new Error(`HTTP ${res.statusCode} from ${url}`), null);
+        	}
+	});
 
-    		// Success
-    		if (res.statusCode >= 200 && res.statusCode < 300) {
-      			res.on("data", (chunk) => (data += chunk));
-      			res.on("end", () => callback(null, data));
-    		} else {
-      			callback(new Error(`HTTP ${res.statusCode} from ${url}`), null);
-    		}
-  	});
+    	// Timeout
+    	req.setTimeout(5000, () => {
+        	req.destroy();
+        	callback(new Error(`Timeout when fetching ${url}`), null);
+    	});
 
-  	// Timeout
-  	req.setTimeout(5000, () => {
-    		req.destroy();
-    		callback(new Error(`Timeout when fetching ${url}`), null);
-  	});
-
-  	req.on("error", (err) => callback(err, null));
+    req.on("error", (err) => callback(err, null));
 }
 
 function scrapeInfo(html) {
 	const $ = cheerio.load(html);
  	const knwl = new Knwl("english");
-  	knwl.init(html);
-
-  	var title = $('meta[property="og:site_name"]').attr('content');
-	if (!title || title.trim() === "") {
-    		title = $('meta[name="application-name"]').attr('content');
-    
-    		if (!title || title.trim() === "") {
-        		title = $("title").text().trim();
-    		}
-	}
+    	knwl.init(addHrefToHtml(html));
+	$("script, style, noscript").remove();
 
 
-  	var emails = knwl.get("emails").map((e) => e.address);
-	$('a[href^="mailto:"]').each((i, el) => {
-  		const email = $(el).attr('href').replace('mailto:', '').trim();
- 	 	emails.push(email);
-	});
+  	let title = $('meta[property="og:site_name"]').attr('content') || $('meta[name="application-name"]').attr('content') || $("title").text();
+	title = (title && title.trim()) || "";
+
+
+  	var emails = knwl.get("emails").map((e) => e.address.toLowerCase());
 
 	emails = emails.filter(email => !/sentry\.io/i.test(email) && !/\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(email));
 
-
   	var phones = knwl.get("phones").map((p) => p.phone);
-  	$('a[href^="tel:"]').each((i, el) => {
-  		const num = $(el).attr('href').replace('tel:', '').trim();
-  		phones.push(num);
-	});
 
   	// const addresses = knwl.get("places").map((p) => p.place);
-
+	
 	var addresses = [];
 	$('p, a, span, address, h1, h2, h3, h4, h5, h6').each((i, el) => {
   		const text = $(el).text().trim();
-		$('style, script').remove();
 
 		if (text.length > 100) return;
 		if (/\£|\$/.test(text)) return;
@@ -108,13 +102,7 @@ function scrapeInfo(html) {
 	const metatags = ($('meta[name="keywords"]').attr('content') || $('meta[name="Keywords"]').attr('content') || '').toLowerCase().split(',').map(k => k.trim()).filter(k => k.length);
 	var industries = (industriesList.filter(industry => metatags.includes(industry)));
 	const descriptionText = ($('meta[name="description"]').attr('content') || $('meta[name="description"]').attr('content') || $('meta[property="og:description"]').attr('content') || '').toLowerCase();
-	industries = industries.concat(industriesList.filter(industry => descriptionText.includes(industry)));
-
-	// Remove duplicates
-	addresses = [...new Set(addresses)];
-	industries = [...new Set(industries)];
-	phones = [...new Set(phones)];
-	emails = [...new Set(emails)];	
+	industries = industries.concat(industriesList.filter(industry => descriptionText.includes(industry)));	
 
   	return { domain, title, emails, phones, addresses, industries };
 }
@@ -137,7 +125,9 @@ function fetchWeb(url, callback) {
       			const href = $(el).attr('href');
 
 			if (href.startsWith('mailto:')) return;
-
+			if (href.startsWith('tel:')) return;
+			if (href.startsWith('#')) return;
+			
       			if (href.includes(domain)) {
         			const absoluteUrl = href.startsWith('http') ? href : new URL(href, url).href;
         			if (!visitedUrls.has(absoluteUrl)) pagelinks.push(absoluteUrl);
@@ -147,22 +137,32 @@ function fetchWeb(url, callback) {
 		pagelinks = [...new Set(pagelinks)].slice(0, 100 - visitedUrls.size);
 
  		if (pagelinks.length === 0) return callback(null, data);
+    		// Fetch other pages
+    		const fetchPromises = pagelinks.map(link =>
+    			new Promise(resolve => {
+        		    	fetchWebsite(link, (err2, pageHtml) => {
+            				if (!err2) {
+                				const pageData = scrapeInfo(pageHtml);
+                				resolve(pageData);
+            				} else {
+                				resolve({ emails: [], phones: [], addresses: [], industries: [] });
+            				}
+       			    	});
+    			})
+		);
 
-    		// Fetch contact pages
-    		let pending = pagelinks.length;
-    		pagelinks.forEach(link => {
-      			fetchWebsite(link, (err2, pageHtml) => {
-        			if (!err2) {
-          				const pageData = scrapeInfo(pageHtml);
-          				data.emails = [...new Set([...data.emails, ...pageData.emails])];
-          				data.phones = [...new Set([...data.phones, ...pageData.phones])];
-          				data.addresses = [...new Set([...data.addresses, ...pageData.addresses])];
-					data.industries = [...new Set([...data.industries, ...pageData.industries])];
+		Promise.allSettled(fetchPromises).then(results => {
+    			results.forEach(r => {
+        			if (r.status === "fulfilled") {
+            				const pageData = r.value;
+            				data.emails = [...new Set([...data.emails, ...pageData.emails])];
+            				data.phones = [...new Set([...data.phones, ...pageData.phones])];
+            				data.addresses = [...new Set([...data.addresses, ...pageData.addresses])];
+            				data.industries = [...new Set([...data.industries, ...pageData.industries])];
         			}
-        			pending--;
-        			if (pending === 0) callback(null, data);
-      			});
-    		});
+    			});
+   	 		callback(null, data);
+		});
   	});
 }
 
@@ -198,9 +198,27 @@ function tryNext(i) {
     		} else {
       			console.log("Extracted Info:");
       			console.log(data);
+			process.exit(0)
     		}
   	});
 }
 
 console.log(`Scraping data for domain: ${domain}...`);
 tryNext(0);
+
+function addHrefToHtml(html) {
+    	const $ = cheerio.load(html);
+
+    	let text = $("body").text();
+
+    	// Collect relevant href
+	const hrefs = [];
+	$("[href]").each((i, el) => {
+    		const val = $(el).attr("href");
+    		if (val && (val.startsWith("mailto:") || val.startsWith("tel:"))) {
+        		hrefs.push(val);
+    		}
+	});
+
+    return text + "\n" + hrefs.join("\n");
+}
