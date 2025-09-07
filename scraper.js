@@ -206,11 +206,8 @@ function extractAddresses($) {
     	$("p, a, span, address, li, div, h1, h2, h3, h4, h5, h6").each((i, el) => {
         	let text = $(el).text().trim();
 
-        	if (!text) return;
-        	if (text.length > 160) return;  // ignore very long blocks
-        	if (/[@]/.test(text)) return;   // skip emails
-        	if (/\£|\$|\€/.test(text)) return; // skip prices
-
+        	if (!text || text.length > 160 || /@/.test(text) || /\£|\$|\€/.test(text)) return;
+			
         	const postcode = (text.match(UK_POSTCODE_REGEX) || [])[0] || "";
         	const street = (text.match(STREET_REGEX) || [])[0] || "";
 
@@ -227,3 +224,4 @@ function extractAddresses($) {
 	return [...new Set(results)]; // Return clean version
 
 }
+
