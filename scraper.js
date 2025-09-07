@@ -224,5 +224,6 @@ function extractAddresses($) {
         	}
 	});
 
-	return [...new Set(results)]; // dedupe
+	return [...new Set(results)]; // Return clean version
+
 }
