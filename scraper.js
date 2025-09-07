@@ -70,33 +70,7 @@ function scrapeInfo(html) {
 
   	var phones = knwl.get("phones").map((p) => p.phone);
 
-  	// const addresses = knwl.get("places").map((p) => p.place);
-	
-	var addresses = [];
-	$('p, a, span, address, h1, h2, h3, h4, h5, h6').each((i, el) => {
-  		const text = $(el).text().trim();
-
-		if (text.length > 100) return;
-		if (/\£|\$/.test(text)) return;
-		if (/\b\d{1,4}-\d{1,4}\b/.test(text)) return;
-
-  		// Check for Street
-  		if (/\d+/.test(text) && /\b(Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Lane|Ln|Estate)\b/i.test(text)) {
-			if (/\d+/.test(text)) {
-   	 			addresses.push(text);
-			}
-  		}
-
-  		// Check UK Postcode
-  		if (/\b[A-Z]{1,2}\d{1,2}[A-Z]?\s?\d[A-Z]{2}\b/i.test(text)) {
-    			addresses.push(text);
-  		}
-
-  		// Check US ZIP Code
-  		// if (/\b\d{5}(?:-\d{4})?\b/.test(text)) {
-    		//	addresses.push(text);
-  		// }
-	});
+  	var addresses = extractAddresses($);
 	
 	// Check industries
 	const metatags = ($('meta[name="keywords"]').attr('content') || $('meta[name="Keywords"]').attr('content') || '').toLowerCase().split(',').map(k => k.trim()).filter(k => k.length);
@@ -221,4 +195,34 @@ function addHrefToHtml(html) {
 	});
 
     return text + "\n" + hrefs.join("\n");
+}
+
+function extractAddresses($) {
+    	const UK_POSTCODE_REGEX = /\b([A-Z]{1,2}\d{1,2}[A-Z]?)\s?(\d[A-Z]{2})\b/i;
+    	const STREET_REGEX = /\d+\s+[A-Za-z0-9\s]+(?:Street|St|Road|Rd|Avenue|Ave|Drive|Dr|Lane|Ln|Estate|Close|Court|Crescent|Way|Place|Square|Village)\b/i;
+
+    	const results = [];
+
+    	$("p, a, span, address, li, div, h1, h2, h3, h4, h5, h6").each((i, el) => {
+        	let text = $(el).text().trim();
+
+        	if (!text) return;
+        	if (text.length > 160) return;  // ignore very long blocks
+        	if (/[@]/.test(text)) return;   // skip emails
+        	if (/\£|\$|\€/.test(text)) return; // skip prices
+
+        	const postcode = (text.match(UK_POSTCODE_REGEX) || [])[0] || "";
+        	const street = (text.match(STREET_REGEX) || [])[0] || "";
+
+        	if (postcode && street) {
+            		// Clean address, Line + Post
+            		text = text.replace(/\s{2,}/g, " ").replace(/\s*,\s*/g, ", ").trim();
+            		results.push(text);
+        	} else if (postcode) {
+            		// Postcode only
+            		results.push(postcode.toUpperCase());
+        	}
+	});
+
+	return [...new Set(results)]; // dedupe
 }
