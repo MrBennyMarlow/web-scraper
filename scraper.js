@@ -4,7 +4,11 @@ const cheerio = require("cheerio");
 const Knwl = require("knwl.js");
 
 function getDomainFromEmail(email) {
-	return email.split("@")[1];
+	if(email){
+		return email.split("@")[1];
+	}else{
+		return '';
+	}
 }
 
 function fetchWebsite(url, callback, redirectCount = 0) {
@@ -143,12 +147,12 @@ function fetchWeb(url, callback) {
 
 // Main runner
 const email = process.argv[2];
-if (!email) {
-  	console.error("Usage: node scraper.js example@domain.com");
-  	process.exit(1);
+const domain = getDomainFromEmail(email);
+if (!email || !domain || !domain.includes(".")) {
+    console.error("Usage: node scraper.js example@domain.com");
+    process.exit(1);
 }
 
-const domain = getDomainFromEmail(email);
 const startUrls = [
   `https://www.${domain}`,
   `https://${domain}`,
@@ -224,4 +228,5 @@ function extractAddresses($) {
 	return [...new Set(results)]; // Return clean version
 
 }
+
 
